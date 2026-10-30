@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Linkwright · Structure quality tools</title>
+<style>
+:root{color-scheme:dark;--bg:#10151d;--panel:#192330;--line:#2d3b4d;--text:#edf3fa;--muted:#aab8c8;--accent:#79c7b5}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 system-ui,sans-serif}.wrap{max-width:1000px;margin:36px auto;padding:0 20px}h1{font-size:30px;margin-bottom:4px}.sub{color:var(--muted);margin-top:0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}label{display:block;margin:12px 0 5px;color:var(--muted)}input,textarea,button{font:inherit}input[type=file],input[type=text],input[type=number]{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:#111a25;color:var(--text)}button{margin-top:16px;border:0;border-radius:8px;padding:11px 16px;background:var(--accent);color:#10201d;font-weight:700;cursor:pointer}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#0d131b;padding:12px;border-radius:8px;max-height:440px;overflow:auto;color:#d4e4f2}.notice{color:#f2d59b;font-size:13px}.status{color:var(--accent);min-height:24px}a{color:var(--accent)}.top{margin-bottom:22px}
+</style></head>
+<body><main class="wrap"><div class="top"><a href="/">← Linkwright home</a><h1>Structure quality tools</h1><p class="sub">Early scientific workflow utilities · v0.4.0</p></div>
+<div class="grid">
+<section class="panel"><h2>Ligand preparation</h2><p class="sub">Generate a hydrogenated, minimized 3D SDF with RDKit and a recorded random seed.</p>
+<label>Ligand file (SDF, MOL, MOL2, PDB, SMILES)</label><input id="ligfile" type="file">
+<label>Or paste SMILES</label><input id="smiles" type="text" placeholder="CC(=O)Oc1ccccc1C(=O)O">
+<label>Conformer random seed</label><input id="seed" type="number" value="20261030">
+<button onclick="prepare()">Prepare ligand</button><div class="status" id="ligstatus"></div><button id="download" hidden onclick="downloadSdf()">Download prepared SDF</button><pre id="ligout">Results will appear here.</pre>
+<p class="notice">Important: minimized SDF is not docking-ready PDBQT. Protonation/tautomer/stereochemistry review and validated PDBQT preparation are still required.</p></section>
+<section class="panel"><h2>Protein PDB inventory</h2><p class="sub">Checks coordinate-record structure and reports chains, residues, waters, hetero atoms and alternate locations.</p>
+<label>Protein structure (.pdb / .ent)</label><input id="pdbfile" type="file" accept=".pdb,.ent">
+<button onclick="validateProtein()">Validate PDB records</button><div class="status" id="pdbstatus"></div><pre id="pdbout">Results will appear here.</pre>
+<p class="notice">This is not protein repair or full validation. It cannot establish missing-atom completeness, biological assembly, protonation or binding-site correctness.</p></section>
+</div></main>
+<script>
+let latestSdf='';
+async function prepare(){const f=document.getElementById('ligfile').files[0],s=document.getElementById('smiles').value; if(!f&&!s){alert('Choose a ligand file or paste SMILES.');return}const d=new FormData();if(f)d.append('file',f);d.append('smiles',s);d.append('seed',document.getElementById('seed').value);const status=document.getElementById('ligstatus');status.textContent='Preparing…';document.getElementById('download').hidden=true;try{const r=await fetch('/api/ligand/prepare',{method:'POST',body:d});const j=await r.json();if(!r.ok)throw Error(j.detail||'Preparation failed');latestSdf=j.prepared_sdf;const shown={...j};delete shown.prepared_sdf;document.getElementById('ligout').textContent=JSON.stringify(shown,null,2);document.getElementById('download').hidden=false;status.textContent='3D SDF prepared. Review warnings before use.'}catch(e){status.textContent=e.message;document.getElementById('ligout').textContent=''} }
+function downloadSdf(){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([latestSdf],{type:'chemical/x-mdl-sdfile'}));a.download='linkwright_prepared_ligand.sdf';a.click();URL.revokeObjectURL(a.href)}
+async function validateProtein(){const f=document.getElementById('pdbfile').files[0];if(!f){alert('Choose a PDB file.');return}const d=new FormData();d.append('file',f);const status=document.getElementById('pdbstatus');status.textContent='Checking…';try{const r=await fetch('/api/protein/validate',{method:'POST',body:d});const j=await r.json();if(!r.ok)throw Error(j.detail||'Validation failed');document.getElementById('pdbout').textContent=JSON.stringify(j,null,2);status.textContent='Inventory complete. Review warnings.'}catch(e){status.textContent=e.message;document.getElementById('pdbout').textContent=''}}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<script>
+(() => {
+  const supabase = window.supabase.createClient(
+    window.LINKWRIGHT_SUPABASE_URL,
+    window.LINKWRIGHT_SUPABASE_PUBLISHABLE_KEY,
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+  );
+  window.linkwrightSupabase = supabase;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const raw = typeof input === 'string' ? input : input.url;
+    if (raw.startsWith('/api/')) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in to use Linkwright.');
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set('Authorization', `Bearer ${session.access_token}`);
+      const target = `${window.LINKWRIGHT_API_URL.replace(/\/$/, '')}${raw}`;
+      return nativeFetch(target, { ...init, headers });
+    }
+    return nativeFetch(input, init);
+  };
+  supabase.auth.getSession().then(({ data }) => {
+    if (!data.session) {
+      const back = encodeURIComponent(window.location.href);
+      window.location.href = `../?login=required&next=${back}`;
+    }
+  });
+  // Download endpoints need the same bearer token as fetch-based API calls.
+  document.addEventListener('click', async event => {
+    const link = event.target.closest('a[href^="/api/"]');
+    if (!link) return;
+    event.preventDefault();
+    try {
+      const response = await window.fetch(link.getAttribute('href'));
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const temp = document.createElement('a');
+      temp.href = url;
+      temp.download = link.getAttribute('href').split('/').pop() || 'linkwright-download';
+      document.body.appendChild(temp); temp.click(); temp.remove(); URL.revokeObjectURL(url);
+    } catch (error) { alert(error.message); }
+  });
+})();
+</script>
+
+</body></html>

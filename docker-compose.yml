@@ -1,0 +1,17 @@
+services:
+  linkwright:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      LINKWRIGHT_RATE: "20"
+      LINKWRIGHT_RETENTION_DAYS: "7"
+      LINKWRIGHT_WORKERS: "2"
+      LINKWRIGHT_MAX_UPLOAD_BYTES: "20971520"
+      LINKWRIGHT_API_KEY: "${LINKWRIGHT_API_KEY:-}"
+      LINKWRIGHT_SURECHEMBL: "${LINKWRIGHT_SURECHEMBL:-1}"
+      SUPABASE_URL: "${SUPABASE_URL:-}"
+      SUPABASE_PUBLISHABLE_KEY: "${SUPABASE_PUBLISHABLE_KEY:-}"
+    volumes: ["jobs:/data"]
+    restart: unless-stopped
+volumes:
+  jobs:

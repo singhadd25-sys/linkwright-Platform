@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Linkwright · AutoDock Vina</title>
+<style>
+:root{font-family:system-ui,sans-serif;color:#172338;background:#eef2f6}*{box-sizing:border-box}body{margin:0;padding:32px 16px}
+main{max-width:900px;margin:auto}.card{background:white;border:1px solid #ccd5df;border-radius:12px;padding:22px;margin:18px 0}
+h1{margin:0}p{color:#53657a}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+label{display:block;font-size:13px;color:#53657a;margin:10px 0 4px}input{width:100%;padding:10px;border:1px solid #cbd5df;border-radius:6px}
+button{padding:11px 18px;border:0;border-radius:6px;background:#2446d8;color:white;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:12px;border-radius:8px}
+a{color:#2446d8}.muted{font-size:13px;color:#66788c}.status{font-weight:650}.row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+@media(max-width:600px){.grid{grid-template-columns:1fr 1fr}body{padding:18px 10px}}
+</style></head><body><main>
+<div class="row"><a href="/">← Hybrid design</a><span class="muted">Linkwright research tools</span></div>
+<h1>AutoDock Vina batch docking</h1>
+<p>Dock pre-prepared PDBQT ligands against one pre-prepared receptor. The receptor and ligands must already have correct atom types, charges, protonation and hydrogens. This page does not prepare structures or identify the binding site.</p>
+<div class="card">
+<form id="dockform">
+<label>Receptor PDBQT</label><input type="file" name="receptor" accept=".pdbqt" required>
+<label>Ligand PDBQT files (1–20)</label><input type="file" name="ligands" accept=".pdbqt" multiple required>
+<h3>Binding box (Å)</h3><p class="muted">Enter coordinates from a co-crystallized ligand or a validated binding-site definition.</p>
+<div class="grid">
+<div><label>Center X</label><input name="center_x" type="number" step="any" value="0" required></div>
+<div><label>Center Y</label><input name="center_y" type="number" step="any" value="0" required></div>
+<div><label>Center Z</label><input name="center_z" type="number" step="any" value="0" required></div>
+<div><label>Size X</label><input name="size_x" type="number" min="1" max="100" step="any" value="22" required></div>
+<div><label>Size Y</label><input name="size_y" type="number" min="1" max="100" step="any" value="22" required></div>
+<div><label>Size Z</label><input name="size_z" type="number" min="1" max="100" step="any" value="22" required></div>
+</div>
+<div class="grid">
+<div><label>Exhaustiveness</label><input name="exhaustiveness" type="number" min="1" max="128" value="8"></div>
+<div><label>Number of modes</label><input name="num_modes" type="number" min="1" max="20" value="9"></div>
+<div><label>Timeout (seconds)</label><input name="timeout" type="number" min="1" max="86400" value="3600"></div>
+</div>
+<label>API key (only if the server administrator enabled one)</label><input id="apikey" type="password" autocomplete="off" placeholder="Optional">
+<p class="muted">The API key is sent in the X-API-Key header. Use HTTPS on a remote server.</p>
+<button id="run" type="submit">Start docking</button>
+</form>
+</div>
+<div class="card" id="progress" hidden><div class="status" id="status">Queued</div><pre id="details"></pre><div id="downloads"></div></div>
+<div class="card"><b>Scientific cautions</b><ul><li>Vina scores are approximate ranking estimates, not binding free energies.</li><li>Use a redocking benchmark and report pose RMSD where a reference pose exists.</li><li>Inspect protonation, cofactors, metals, waters and receptor flexibility manually.</li><li>Docking does not establish activity, selectivity or safety.</li></ul></div>
+</main>
+<script>
+const form=document.querySelector("#dockform"), run=document.querySelector("#run"), progress=document.querySelector("#progress");
+form.addEventListener("submit",async e=>{
+ e.preventDefault();run.disabled=true;progress.hidden=false;document.querySelector("#status").textContent="Uploading files…";
+ document.querySelector("#details").textContent="";document.querySelector("#downloads").innerHTML="";
+ try{
+  const fd=new FormData(form);const key=document.querySelector("#apikey").value;
+  const headers=key?{"X-API-Key":key}:{};
+  const r=await fetch("/api/docking",{method:"POST",body:fd,headers});
+  const data=await r.json();if(!r.ok)throw new Error(data.detail||"Could not queue docking job.");
+  const id=data.job_id;document.querySelector("#status").textContent="Docking queued";
+  for(let i=0;i<1800;i++){
+   await new Promise(resolve=>setTimeout(resolve,2000));
+   const sr=await fetch(`/api/jobs/${id}`);const st=await sr.json();
+   document.querySelector("#status").textContent=`Job ${st.state||"running"}`;
+   document.querySelector("#details").textContent=JSON.stringify(st.stages||st.error||{},null,2);
+   if(st.state==="done"){
+    const result=st.result||{};document.querySelector("#details").textContent=JSON.stringify(result,null,2);
+    document.querySelector("#downloads").innerHTML=`<p><a href="/api/jobs/${id}/files/docking_results.json">Download results JSON</a> · <a href="/api/jobs/${id}/files/docking_package.zip">Download docked poses ZIP</a></p>`;
+    break;
+   }
+   if(st.state==="failed")throw new Error(st.error||"Docking failed.");
+  }
+ }catch(err){document.querySelector("#status").textContent="Error";document.querySelector("#details").textContent=err.message;}
+ finally{run.disabled=false;}
+});
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="./config.js"></script>
+<script>
+(() => {
+  const supabase = window.supabase.createClient(
+    window.LINKWRIGHT_SUPABASE_URL,
+    window.LINKWRIGHT_SUPABASE_PUBLISHABLE_KEY,
+    { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
+  );
+  window.linkwrightSupabase = supabase;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const raw = typeof input === 'string' ? input : input.url;
+    if (raw.startsWith('/api/')) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Please sign in to use Linkwright.');
+      const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+      headers.set('Authorization', `Bearer ${session.access_token}`);
+      const target = `${window.LINKWRIGHT_API_URL.replace(/\/$/, '')}${raw}`;
+      return nativeFetch(target, { ...init, headers });
+    }
+    return nativeFetch(input, init);
+  };
+  supabase.auth.getSession().then(({ data }) => {
+    if (!data.session) {
+      const back = encodeURIComponent(window.location.href);
+      window.location.href = `../?login=required&next=${back}`;
+    }
+  });
+  // Download endpoints need the same bearer token as fetch-based API calls.
+  document.addEventListener('click', async event => {
+    const link = event.target.closest('a[href^="/api/"]');
+    if (!link) return;
+    event.preventDefault();
+    try {
+      const response = await window.fetch(link.getAttribute('href'));
+      if (!response.ok) throw new Error(`Download failed (${response.status})`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const temp = document.createElement('a');
+      temp.href = url;
+      temp.download = link.getAttribute('href').split('/').pop() || 'linkwright-download';
+      document.body.appendChild(temp); temp.click(); temp.remove(); URL.revokeObjectURL(url);
+    } catch (error) { alert(error.message); }
+  });
+})();
+</script>
+
+</body></html>

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: linkwright-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: LINKWRIGHT_RETENTION_DAYS
+        value: "7"
+      - key: LINKWRIGHT_WORKERS
+        value: "2"
+      - key: LINKWRIGHT_RATE
+        value: "20"
