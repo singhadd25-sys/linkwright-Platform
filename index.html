@@ -16,7 +16,7 @@
 <body>
 <div class="ambient ambient-one"></div><div class="ambient ambient-two"></div>
 <header class="site-header"><a class="brand" href="#home" aria-label="Linkwright home"><span class="brand-mark"><svg viewBox="0 0 40 40"><path d="M8 12.5 20 5l12 7.5v15L20 35 8 27.5zM8 12.5l12 7 12-7M20 19.5V35M14 9l12 7.5M26 9l-12 7.5"/></svg></span><span>linkwright<span class="brand-dot">.</span></span></a>
-<nav class="desktop-nav" aria-label="Main navigation"><a href="#platform">Platform</a><a href="#workflow">Workflow</a><a href="#research">For researchers</a><a href="#about">About</a></nav><div class="header-actions"><button class="button button-quiet" id="login-nav" data-open-auth="login">Log in</button><button class="button button-primary" id="signup-nav" data-open-auth="signup">Create account ↗</button><span class="button button-quiet" id="account-indicator" hidden></span><button class="button button-quiet" id="signout-nav" hidden>Sign out</button><button class="mobile-menu" aria-label="Open menu" aria-expanded="false">☰</button></div></header>
+<nav class="desktop-nav" aria-label="Main navigation"><a href="#platform">Platform</a><a href="#workflow">Workflow</a><a href="#research">For researchers</a><a href="#about">About</a></nav><div class="header-actions"><button class="button button-quiet" id="login-nav" data-open-auth="login">Log in</button><button class="button button-primary" id="signup-nav" data-open-auth="signup">Create account ↗</button><span class="button button-quiet" id="account-indicator" hidden></span><a class="button button-primary" id="launch-nav" href="./app/" hidden>Launch workspace ↗</a><button class="button button-quiet" id="signout-nav" hidden>Sign out</button><button class="mobile-menu" aria-label="Open menu" aria-expanded="false">☰</button></div></header>
 <main><section class="hero section-wrap" id="home"><div class="hero-copy"><div class="eyebrow"><span class="pulse"></span> COMPUTATIONAL MOLECULAR RESEARCH</div><h1>Turn molecular<br><span class="gradient-text">ideas into insight.</span></h1><p class="hero-lede">A focused workspace for computational biology, molecular design and drug-discovery research — from structure exploration to reproducible modelling workflows.</p><div class="hero-actions"><button class="button button-primary button-large" data-open-auth="signup">Explore Linkwright ↗</button><a class="text-link" href="#platform">Discover the platform ↓</a></div><div class="hero-proof"><span class="proof-icon">⌬</span><span>Built for curious minds in molecular science</span></div></div>
 <div class="hero-art" aria-label="Abstract molecular network illustration"><div class="art-orbit orbit-a"></div><div class="art-orbit orbit-b"></div><div class="art-orbit orbit-c"></div><svg class="molecule" viewBox="0 0 560 500" role="img" aria-label="Abstract connected molecular structure"><defs><radialGradient id="node" cx="35%" cy="30%"><stop stop-color="#c6f7ff"/><stop offset=".35" stop-color="#5eead4"/><stop offset="1" stop-color="#168b9b"/></radialGradient><linearGradient id="bond"><stop stop-color="#2dd4bf" stop-opacity=".25"/><stop offset=".5" stop-color="#8be9ff"/><stop offset="1" stop-color="#8b7cff" stop-opacity=".3"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><g stroke="url(#bond)" stroke-width="3" fill="none"><path d="M280 90 390 150 430 270 340 365 205 350 125 235 170 130 280 90M170 130 280 245 390 150M125 235 280 245 340 365M280 245 430 270M205 350 280 245M280 90 280 245"/></g><g fill="url(#node)" filter="url(#glow)"><circle cx="280" cy="90" r="15"/><circle cx="390" cy="150" r="12"/><circle cx="430" cy="270" r="17"/><circle cx="340" cy="365" r="13"/><circle cx="205" cy="350" r="18"/><circle cx="125" cy="235" r="12"/><circle cx="170" cy="130" r="16"/><circle cx="280" cy="245" r="24"/></g><g fill="#b7c9e9" font-family="DM Sans" font-size="12" letter-spacing="2"><text x="294" y="68">N</text><text x="408" y="143">O</text><text x="446" y="278">C</text><text x="345" y="392">H</text><text x="178" y="377">N</text><text x="90" y="230">O</text></g></svg><div class="art-label label-top"><span class="label-dot"></span> STRUCTURE EXPLORATION</div><div class="art-label label-bottom">MOLECULAR WORKSPACE <span>01 / 04</span></div><div class="floating-chip chip-one">⌬ &nbsp; Molecular design</div><div class="floating-chip chip-two">↗ &nbsp; Research workflows</div></div><div class="hero-scroll">SCROLL TO EXPLORE <span></span></div></section>
 <section class="metrics section-wrap"><div><strong>01</strong><span>Connected research workspace</span></div><div><strong>02</strong><span>Structure-led exploration</span></div><div><strong>03</strong><span>Reproducible workflows</span></div><div><strong>04</strong><span>Research-first design</span></div></section>
@@ -78,6 +78,7 @@
     $('#signup-nav').hidden = signedIn;
     $('#account-indicator').hidden = !signedIn;
     $('#signout-nav').hidden = !signedIn;
+    $('#launch-nav').hidden = !signedIn;
     if (signedIn) {
       const name = session.user.user_metadata?.full_name;
       $('#account-indicator').textContent = name ? 'Signed in: ' + name : 'Signed in';
@@ -167,8 +168,8 @@
       if (error) throw error;
       signupForm.reset();
       if (data.session) {
-        setStatus(signupStatus, 'Your account is ready. You are now signed in.');
-        closeAuth();
+        setStatus(signupStatus, 'Your account is ready. Opening your research workspace…');
+        window.location.href = './app/';
       } else {
         setStatus(signupStatus, 'Account request received. Check your email for the verification link, then return here to log in. If the email does not arrive, check your spam folder.');
       }
@@ -194,8 +195,10 @@
       const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
       if (error) throw error;
       loginForm.reset();
-      setStatus(loginStatus, 'You are signed in.');
-      closeAuth();
+      setStatus(loginStatus, 'Signed in. Opening your research workspace…');
+      const requested = new URLSearchParams(window.location.search).get('next');
+      const destination = requested && requested.startsWith(window.location.origin) ? requested : './app/';
+      window.location.href = destination;
     } catch (error) {
       setStatus(loginStatus, error.message || 'Login failed. Check your details and try again.', true);
     } finally {
