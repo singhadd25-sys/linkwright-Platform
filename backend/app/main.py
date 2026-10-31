@@ -241,18 +241,32 @@ def _send_otp_email(email: str, code: str):
     import smtplib
     from email.message import EmailMessage
     text=f"Your Linkwright verification code is {code}. It expires in 10 minutes. If you did not request this code, ignore this email."
+    # Prefer HTTPS email APIs: Render Free blocks outbound SMTP ports.
+    import json, urllib.request
+    sender=os.environ.get("LINKWRIGHT_MAIL_FROM", "")
+    resend_key=os.environ.get("RESEND_API_KEY", "")
+    if resend_key:
+        if not sender: raise RuntimeError("LINKWRIGHT_MAIL_FROM is not set to a verified sender.")
+        req=urllib.request.Request("https://api.resend.com/emails", method="POST",
+            data=json.dumps({"from":f"Linkwright <{sender}>","to":[email],
+                             "subject":"Your Linkwright verification code","text":text}).encode(),
+            headers={"Authorization":f"Bearer {resend_key}","content-type":"application/json","accept":"application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                if response.status >= 300: raise RuntimeError(f"Resend API returned HTTP {response.status}")
+        except urllib.error.HTTPError as exc:
+            detail=exc.read(1000).decode("utf-8","replace")
+            raise RuntimeError(f"Resend API returned HTTP {exc.code}: {detail}") from exc
+        return None
     brevo_key=os.environ.get("LINKWRIGHT_BREVO_API_KEY", "")
     if brevo_key:
-        # HTTPS API: works on Render Free, where outbound SMTP ports are blocked.
-        import json, urllib.request
-        sender=os.environ.get("LINKWRIGHT_MAIL_FROM", "")
-        if not sender: raise RuntimeError("LINKWRIGHT_MAIL_FROM (a sender verified in Brevo) is not set.")
+        if not sender: raise RuntimeError("LINKWRIGHT_MAIL_FROM is not set to a verified sender.")
         req=urllib.request.Request("https://api.brevo.com/v3/smtp/email", method="POST",
             data=json.dumps({"sender":{"name":"Linkwright","email":sender},"to":[{"email":email}],
                              "subject":"Your Linkwright verification code","textContent":text}).encode(),
             headers={"api-key":brevo_key,"content-type":"application/json","accept":"application/json"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            if r.status >= 300: raise RuntimeError(f"Email API returned {r.status}")
+        with urllib.request.urlopen(req, timeout=20) as response:
+            if response.status >= 300: raise RuntimeError(f"Brevo API returned HTTP {response.status}")
         return None
     host=os.environ.get("LINKWRIGHT_SMTP_HOST", "")
     if not host:
