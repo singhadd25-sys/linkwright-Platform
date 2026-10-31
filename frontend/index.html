@@ -76,6 +76,22 @@ button:disabled{opacity:.55;cursor:wait}
 .legend{font-size:12.5px;color:var(--muted)}.legend i{display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--amber);vertical-align:-1px;margin-right:4px}
 @media (max-width:860px){.shell{grid-template-columns:1fr}.rail{position:static;height:auto}main{padding:24px 16px 60px}.grid2,.parents{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:no-preference){.stages li::before{transition:background .25s,border-color .25s}}
+
+/* Reaction-engine integration */
+.rx-panel{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:22px;margin:0 0 20px}
+.rx-panel h2{font-size:18px;margin-bottom:8px}.rx-lede{color:var(--muted);margin:0 0 14px;font-size:13.5px}
+.rx-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+.rx-status{font-size:13px;color:var(--muted)}.rx-groups{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
+.rx-parent{background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:12px}
+.rx-parent h3{font-size:14px;margin-bottom:8px}.rx-chip{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 9px;margin:3px 4px 3px 0;font-size:12px}
+.rx-product{border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:7px;padding:16px;margin:12px 0;background:var(--panel)}
+.rx-product header{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}.rx-product h3{font-size:16px}
+.rx-product .rx-mol{display:grid;grid-template-columns:minmax(220px,460px) 1fr;gap:16px;align-items:center;margin:12px 0}
+.rx-product .rx-mol svg{width:100%;height:auto;background:#fff;border:1px solid var(--line);border-radius:5px}
+.rx-meta{font-size:13px;color:var(--muted);margin:6px 0}.rx-warning{background:var(--soft);border-left:3px solid var(--amber);padding:9px 12px;font-size:13px;margin-top:10px}
+.rx-empty{padding:14px;border:1px dashed var(--line);border-radius:7px;color:var(--muted)}
+@media(max-width:760px){.rx-groups,.rx-product .rx-mol{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -116,7 +132,7 @@ button:disabled{opacity:.55;cursor:wait}
 
       <div class="row">
         <div><label for="mode">How to combine</label>
-          <select id="mode"><option value="both">Reaction rules and linkers</option><option value="reactions">Reaction rules only</option><option value="linkers">Linkers only</option></select></div>
+          <select id="mode"><option value="auto" selected>Automatic — reactions + broad linker exploration</option><option value="both">Reaction rules and linkers</option><option value="reactions">Reaction rules only</option><option value="linkers">Linkers only</option></select></div>
         <div><label for="max">Hybrids to keep</label><input id="max" type="number" min="1" max="50" value="12"></div>
         <div><label for="ns">MD length (ns)</label><input id="ns" type="number" min="1" max="1000" value="100"></div>
         <div><label for="temp">Temperature (K)</label><input id="temp" type="number" step="0.05" value="310.15"></div>
@@ -135,6 +151,15 @@ button:disabled{opacity:.55;cursor:wait}
       <div class="err" id="err" role="alert"></div>
     </form>
 
+    <section class="rx-panel" id="reaction-workbench" aria-labelledby="rx-title">
+      <h2 id="rx-title">Reaction compatibility &amp; product preview</h2>
+      <p class="rx-lede">Analyze the two SMILES entered above. Linkwright detects functional groups, evaluates its curated forward-reaction rules, and displays validated computational product graphs with reaction provenance.</p>
+      <div class="rx-actions">
+        <button class="ghost" id="analyze-reactions" type="button">Analyze compatibility</button>
+        <span class="rx-status" id="rx-status" role="status" aria-live="polite">Enter SMILES for both parents, then analyze.</span>
+      </div>
+      <div id="rx-results"></div>
+    </section>
     <div id="out"></div>
   </main>
 </div>
@@ -167,6 +192,58 @@ function setStages(st = {}) {
     $("em", li).textContent = s ? s.message : "";
   });
 }
+
+
+function functionalGroupMarkup(groups) {
+  if (!groups || !groups.length) return '<span class="rx-meta">No supported functional groups detected by the current pattern set.</span>';
+  return groups.map(g => `<span class="rx-chip" title="SMARTS: ${esc(g.smarts)}">${esc(g.name)} × ${esc(g.count)}</span>`).join("");
+}
+function renderReactionAnalysis(data) {
+  const parentCards = ["A", "B"].map(k => {
+    const p = data.parents[k];
+    return `<div class="rx-parent"><h3>Parent ${k}: ${esc(p.name)}</h3><div class="smiles">${esc(p.canonical_smiles)}</div><div>${functionalGroupMarkup(p.functional_groups)}</div></div>`;
+  }).join("");
+  const products = (data.compatible_forward_reactions || []).map((p, i) => {
+    const v = p.validation || {};
+    const safeSvg = p.product_svg || '<div class="rx-empty">2D depiction unavailable for this product.</div>';
+    return `<article class="rx-product">
+      <header><h3>${esc(p.rule_name || p.rule_id || `Candidate ${i+1}`)}</h3><span class="tag ${v.rdkit_sanitized && v.single_connected_product ? 'pass' : 'warn'}">${v.rdkit_sanitized && v.single_connected_product ? 'RDKit validated graph' : 'Validation needs review'}</span></header>
+      <div class="rx-mol"><div>${safeSvg}</div><div>
+        <table class="kv"><tr><td>Formula</td><td>${esc(v.formula || 'n/a')}</td></tr><tr><td>Formal charge</td><td>${esc(v.formal_charge ?? 'n/a')}</td></tr><tr><td>New bond</td><td>${esc(p.new_connection || 'n/a')}</td></tr><tr><td>Reactant roles</td><td>${esc((p.reactant_roles || []).join(' + '))}</td></tr></table>
+        <div class="smiles">${esc(p.product_smiles)}</div><button class="ghost" type="button" data-rx-copy="${esc(p.product_smiles)}">Copy product SMILES</button>
+      </div></div>
+      <div class="rx-meta"><strong>Conditions (illustrative):</strong> ${esc(p.typical_conditions || 'Not specified')}</div>
+      <div class="rx-meta"><strong>Mechanism:</strong> ${esc(p.activation_mechanism || 'Not annotated')}</div>
+      <div class="rx-meta"><strong>Literature:</strong> ${esc(p.literature_reference || 'No reference attached')}</div>
+      <div class="rx-meta"><strong>Evidence class:</strong> ${esc(p.evidence_class || 'curated_forward_rule_computational_product')}</div>
+      <div class="rx-warning">${esc(p.warning || 'Computational product only; experimental feasibility has not been established.')} ${esc(p.byproduct_scope_note || '')}</div>
+    </article>`;
+  }).join("");
+  const db = data.retrorules_database || {};
+  const limitations = (data.limitations || []).map(x => `<li>${esc(x)}</li>`).join("");
+  return `<div class="rx-groups">${parentCards}</div>
+    <div class="rx-meta"><strong>Reaction-template database:</strong> ${db.indexed ? 'Indexed' : 'Not indexed'} · ${esc(db.template_count || 0)} templates. Used as searchable evidence, not blindly executed as forward two-parent rules.</div>
+    ${products || '<div class="rx-empty">No compatible curated forward reaction was found for this pair. This does not prove that no synthesis route exists.</div>'}
+    <details><summary>Interpretation and scientific limitations</summary><p class="rx-meta">${esc(data.interpretation || '')}</p><ul class="rx-meta">${limitations}</ul></details>`;
+}
+
+$("#analyze-reactions").addEventListener("click", async () => {
+  const a = $('.parent[data-p="A"] textarea').value.trim();
+  const b = $('.parent[data-p="B"] textarea').value.trim();
+  const status = $("#rx-status"), target = $("#rx-results"), btn = $("#analyze-reactions");
+  target.innerHTML = "";
+  if (!a || !b) { status.textContent = "Please paste SMILES for both parents above. File-only inputs are not yet supported by this preview."; return; }
+  btn.disabled = true; status.textContent = "Detecting functional groups and evaluating curated reaction rules…";
+  try {
+    const response = await fetch("/api/reactions/analyze", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({smiles_a:a, smiles_b:b, name_a:"Parent A", name_b:"Parent B"})});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || "Reaction analysis failed.");
+    target.innerHTML = renderReactionAnalysis(data);
+    target.querySelectorAll("[data-rx-copy]").forEach(b => b.addEventListener("click", async () => { await navigator.clipboard.writeText(b.dataset.rxCopy); b.textContent = "Copied"; }));
+    status.textContent = `${data.reaction_count || 0} compatible curated reaction product(s) generated.`;
+  } catch (err) { status.textContent = "Analysis failed."; target.innerHTML = `<div class="err">${esc(err.message)}</div>`; }
+  finally { btn.disabled = false; }
+});
 
 $("#form").addEventListener("submit", async e => {
   e.preventDefault();

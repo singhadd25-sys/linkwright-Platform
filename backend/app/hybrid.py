@@ -25,8 +25,8 @@ RULES = [
         smarts=f"[CX3:1](=[O:2])[OX2H1].{_AMINE}:3]>>[C:1](=[O:2])[N:3]",
         roles=("carboxylic acid", "amine"),
         bond="C(=O)-N",
-        loss="H2O",
-        conditions="Typical: HATU or EDC/HOBt, DIPEA, DMF, room temperature.",
+        loss="Not explicitly modeled. HATU/EDC coupling generates reagent-derived waste; do not report H2O as the sole byproduct.",
+        conditions="Illustrative: HATU or EDC/HOBt with base (e.g., DIPEA) in a compatible solvent. Substrate-specific optimization required.",
         ref="Montalbetti & Falque, Tetrahedron 2005, 61, 10827.",
     ),
     dict(
@@ -35,8 +35,8 @@ RULES = [
         smarts="[CX3:1](=[O:2])[OX2H1].[OX2H1;!$(OC=[O,S]):3]>>[C:1](=[O:2])[O:3]",
         roles=("carboxylic acid", "alcohol/phenol"),
         bond="C(=O)-O",
-        loss="H2O",
-        conditions="Typical: EDC/DMAP (Steglich) or acid chloride route.",
+        loss="Route-dependent; water may be formed in direct condensation, while activated-acid routes generate reagent-derived byproducts.",
+        conditions="Illustrative: Steglich esterification (carbodiimide/DMAP) or an independently validated activated-acid route.",
         ref="Neises & Steglich, Angew. Chem. Int. Ed. 1978, 17, 522.",
     ),
     dict(
@@ -45,8 +45,8 @@ RULES = [
         smarts="[CX4:1][Cl,Br,I].[OX2H1;!$(OC=[O,S]):2]>>[C:1][O:2]",
         roles=("alkyl halide", "alcohol/phenol"),
         bond="C-O",
-        loss="HX",
-        conditions="Typical: K2CO3 or NaH, DMF or acetonitrile.",
+        loss="Halide-containing salt after base-mediated substitution; exact species depends on base and work-up.",
+        conditions="Illustrative: base-mediated substitution (e.g., carbonate) in a compatible polar solvent; primary alkyl halides are generally preferred.",
         ref="",
     ),
     dict(
@@ -55,8 +55,8 @@ RULES = [
         smarts=f"[CX4:1][Cl,Br,I].{_AMINE}:2]>>[C:1][N:2]",
         roles=("alkyl halide", "amine"),
         bond="C-N",
-        loss="HX",
-        conditions="Typical: K2CO3 or DIPEA, DMF or acetonitrile.",
+        loss="Halide-containing salt after base-mediated substitution; exact species depends on base and work-up.",
+        conditions="Illustrative: base-mediated N-alkylation; over-alkylation and competing nucleophiles must be assessed.",
         ref="",
     ),
     dict(
@@ -65,8 +65,8 @@ RULES = [
         smarts=f"[CX3H1:1](=O)[*:3].{_AMINE}:2]>>[C:1]([*:3])[N:2]",
         roles=("aldehyde", "amine"),
         bond="C-N",
-        loss="H2O (then reduction)",
-        conditions="Typical: NaBH(OAc)3, DCE or THF, acetic acid.",
+        loss="Water during imine/iminium formation; subsequent reduction consumes a hydride reagent and generates reagent-derived waste.",
+        conditions="Illustrative: imine/iminium formation followed by a compatible reducing agent (e.g., sodium triacetoxyborohydride); pH and substrate scope matter.",
         ref="Abdel-Magid et al., J. Org. Chem. 1996, 61, 3849.",
     ),
     dict(
@@ -75,8 +75,8 @@ RULES = [
         smarts=f"[SX4:1](=[O:2])(=[O:3])[Cl].{_AMINE}:4]>>[S:1](=[O:2])(=[O:3])[N:4]",
         roles=("sulfonyl chloride", "amine"),
         bond="S(=O)(=O)-N",
-        loss="HCl",
-        conditions="Typical: pyridine or Et3N, DCM, 0 C to room temperature.",
+        loss="HCl captured by base as an ammonium salt; exact salt depends on base.",
+        conditions="Illustrative: sulfonyl chloride plus amine in the presence of a suitable base; moisture sensitivity and chemoselectivity matter.",
         ref="",
     ),
     dict(
@@ -85,8 +85,8 @@ RULES = [
         smarts=f"[N:1]=[C:2]=[O:3].{_AMINE}:4]>>[N:1][C:2](=[O:3])[N:4]",
         roles=("isocyanate", "amine"),
         bond="N-C(=O)-N",
-        loss="none (addition)",
-        conditions="Typical: DCM or THF, room temperature.",
+        loss="No small-molecule leaving group in the idealized addition; proton transfers and work-up are omitted.",
+        conditions="Illustrative: isocyanate-amine addition under compatible conditions; moisture and competing nucleophiles matter.",
         ref="",
     ),
     dict(
@@ -95,8 +95,8 @@ RULES = [
         smarts="[#6:1][C:2]#[CH:3].[N;+0:5]=[N+:6]=[N-:7]>>[#6:1][c:2]1[cH:3][n:5][n:6][n:7]1",
         roles=("terminal alkyne", "organic azide"),
         bond="1,4-disubstituted 1,2,3-triazole ring",
-        loss="none (cycloaddition)",
-        conditions="Typical: CuSO4/sodium ascorbate, tBuOH-water, room temperature.",
+        loss="No stoichiometric small-molecule byproduct in the idealized cycloaddition; copper removal/work-up omitted.",
+        conditions="Illustrative Cu(I)-catalyzed azide-alkyne cycloaddition; copper source/ligand, solvent, oxygen and substrate scope require review.",
         ref="Rostovtsev et al., Angew. Chem. Int. Ed. 2002, 41, 2596; Tornoe et al., J. Org. Chem. 2002, 67, 3057.",
     ),
     dict(
@@ -105,8 +105,8 @@ RULES = [
         smarts="[c:1][Cl,Br,I].[c:2][BX3]([OX2H1])[OX2H1]>>[c:1][c:2]",
         roles=("aryl halide", "aryl boronic acid"),
         bond="aryl-aryl C-C",
-        loss="HX + boric acid",
-        conditions="Typical: Pd(PPh3)4 or Pd(dppf)Cl2, K2CO3, dioxane-water, 80-100 C.",
+        loss="Halide and boron-containing inorganic waste; exact speciation depends on base, solvent and work-up.",
+        conditions="Illustrative Pd-catalyzed Suzuki-Miyaura coupling with base; catalyst, solvent, temperature and heteroaryl scope require optimization.",
         ref="Miyaura & Suzuki, Chem. Rev. 1995, 95, 2457.",
     ),
 ]
@@ -292,7 +292,7 @@ def _join(a, ia, b, ib, linker_smiles, flip=False):
 
 
 def enumerate_linkers(a, b, name_a="A", name_b="B", linker_ids=None, sites_a=None, sites_b=None,
-                      max_sites=6, max_mw=800.0):
+                      max_sites=10, max_mw=2000.0):
     from rdkit import Chem
     from rdkit.Chem import Descriptors
 
@@ -337,12 +337,20 @@ def enumerate_linkers(a, b, name_a="A", name_b="B", linker_ids=None, sites_a=Non
     return list(found.values())
 
 
-def generate(a, b, mode="both", name_a="A", name_b="B", linker_ids=None, sites_a=None, sites_b=None):
+def generate(a, b, mode="auto", name_a="A", name_b="B", linker_ids=None, sites_a=None, sites_b=None):
+    """Generate reaction products and/or linker hypotheses.
+
+    auto/both always attempts both strategies. If no curated reaction applies, linker
+    enumeration is still attempted; this avoids treating absent functional-group matches
+    as proof that no hybrid design can be proposed.
+    """
     out: list[Hybrid] = []
-    if mode in ("reactions", "both"):
+    if mode in ("reactions", "both", "auto"):
         out += enumerate_reactions(a, b, name_a, name_b)
-    if mode in ("linkers", "both"):
+    if mode in ("linkers", "both", "auto"):
         seen = {h.smiles for h in out}
-        out += [h for h in enumerate_linkers(a, b, name_a, name_b, linker_ids, sites_a, sites_b)
-                if h.smiles not in seen]
+        out += [h for h in enumerate_linkers(
+            a, b, name_a, name_b, linker_ids, sites_a, sites_b,
+            max_sites=10, max_mw=2000.0,
+        ) if h.smiles not in seen]
     return out
