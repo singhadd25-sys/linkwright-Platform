@@ -9,3 +9,10 @@ rdkit>=2023.9
 pytest>=8
 
 psycopg[binary]>=3.1
+
+# PCR Nexus numeric analysis and report generation
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+matplotlib>=3.8
+openpyxl>=3.1
