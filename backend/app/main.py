@@ -79,7 +79,7 @@ async def account_and_ownership_guard(request: Request, call_next):
     response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     return response
 
-pool = ThreadPoolExecutor(max_workers=int(os.environ.get("LINKWRIGHT_WORKERS", "2")))
+pool = ThreadPoolExecutor(max_workers=max(1, int(os.environ.get("LINKWRIGHT_WORKERS", "1"))))
 _hits: dict[str, deque] = defaultdict(deque)
 _auth_hits: dict[str, deque] = defaultdict(deque)
 _lock = threading.Lock()
