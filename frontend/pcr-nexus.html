@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PCR Nexus | Linkwright</title>
+<style>
+:root{--bg:#071018;--panel:#101e2b;--panel2:#132536;--line:#22394b;--text:#e8f4fb;--muted:#91a9b9;--cyan:#4dd8d0;--blue:#6ba8ff;--danger:#ff9b9b}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 12% 0%,#123144 0,transparent 42%),var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,Segoe UI,sans-serif}
+a{color:var(--cyan);text-decoration:none}.wrap{max-width:1120px;margin:auto;padding:28px clamp(16px,4vw,48px)}
+.top{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:28px}.brand{font-size:20px;font-weight:800;letter-spacing:1px}.brand span{color:var(--cyan)}.back{border:1px solid var(--line);border-radius:9px;padding:9px 13px}
+.hero,.panel{background:linear-gradient(145deg,#132637,#0d1b27);border:1px solid var(--line);border-radius:16px;padding:24px;margin:16px 0}
+.eyebrow{color:var(--cyan);font-size:11px;letter-spacing:2px;text-transform:uppercase}.hero h1{font-size:clamp(28px,4vw,42px);margin:8px 0}.muted{color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+label{display:block;font-size:13px;color:#b8cad5;margin:12px 0 6px}input,select{width:100%;padding:12px;border-radius:8px;border:1px solid #355064;background:#08141e;color:white}
+input[type=file]{padding:10px}.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}.btn{display:inline-block;border:0;border-radius:9px;padding:11px 16px;background:linear-gradient(120deg,#1a9e9a,#2677bd);color:white;font-weight:700;cursor:pointer;margin-top:16px}
+.btn:disabled{opacity:.5;cursor:wait}.status{padding:12px;border-radius:9px;background:#0a1823;border:1px solid var(--line);margin-top:14px;white-space:pre-wrap}
+.links{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}.links a{border:1px solid #315267;padding:9px 12px;border-radius:8px}.warn{border-left:3px solid #d3a65e;padding:8px 12px;background:#17212a;margin:8px 0}
+ul{padding-left:20px}.hidden{display:none}@media(max-width:700px){.grid,.row{grid-template-columns:1fr}.top{align-items:flex-start;flex-direction:column}}
+</style></head><body><main class="wrap">
+<header class="top"><div><div class="brand">LINK<span>WRIGHT</span> / PCR NEXUS</div><div class="muted">Researcher analysis workspace</div></div><a class="back" href="/signup">Linkwright sign-in</a></header>
+<section class="hero"><div class="eyebrow">PCR DATA ANALYSIS</div><h1>From raw PCR data to a reviewable report.</h1><p class="muted">Upload numeric instrument exports for automatic file recognition, analysis, quality-control flags, calculation traces, Excel tables and publication-ready figures.</p><p class="muted">Supported: Ct/Cq tables, raw amplification curves, melt/HRM curves and digital PCR partition counts. Gel images and end-point PCR images are not analysed.</p></section>
+<section class="panel"><h2>Start an analysis</h2><form id="pcrForm">
+<label for="pcrFile">PCR instrument export (CSV, TSV, TXT, XLSX or XLSM)</label><input id="pcrFile" name="file" type="file" accept=".csv,.tsv,.txt,.xlsx,.xlsm" required>
+<label for="plateFile">Optional plate map for raw amplification curves</label><input id="plateFile" name="plate" type="file" accept=".csv,.tsv,.txt">
+<div class="row"><div><label for="reference">Reference gene (optional)</label><input id="reference" name="reference_gene" placeholder="e.g. GAPDH"></div><div><label for="control">Control/calibrator group (optional)</label><input id="control" name="control_group" placeholder="e.g. Control"></div></div>
+<label for="volume">Digital PCR partition volume (µL; default 0.00085)</label><input id="volume" name="dpcr_partition_volume_ul" type="number" min="0.000001" max="1" step="0.000001" value="0.00085">
+<button class="btn" id="submit" type="submit">Analyse PCR file →</button>
+</form><div id="status" class="status" role="status">Your files are private to your researcher account. Do not upload identifiable patient data unless your institution has approved this use.</div></section>
+<section id="result" class="panel hidden"><div class="eyebrow">ANALYSIS RESULT</div><h2 id="detected"></h2><p id="meta" class="muted"></p><div class="links" id="downloads"></div><h3>Quality control</h3><div id="qc"></div><h3>Recognition evidence</h3><ul id="evidence"></ul></section>
+</main><script>
+const $=id=>document.getElementById(id);
+async function api(url,options={}){const r=await fetch(url,{credentials:'same-origin',...options});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(d.detail||'Request failed ('+r.status+')');return d}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+$('pcrForm').addEventListener('submit',async e=>{e.preventDefault();$('submit').disabled=true;$('status').textContent='Uploading file and queueing analysis…';$('result').classList.add('hidden');
+try{const fd=new FormData();fd.append('file',$('pcrFile').files[0]);if($('plateFile').files[0])fd.append('plate',$('plateFile').files[0]);fd.append('reference_gene',$('reference').value);fd.append('control_group',$('control').value);fd.append('dpcr_partition_volume_ul',$('volume').value);
+const job=await api('/api/pcr/jobs',{method:'POST',body:fd});$('status').textContent='Job '+job.job_id+' queued. Analysing…';await poll(job.job_id);
+}catch(err){$('status').textContent=err.message}finally{$('submit').disabled=false}});
+async function poll(id){for(let i=0;i<180;i++){const s=await api('/api/pcr/jobs/'+id);if(s.state==='done'){render(s.result);$('status').textContent='Analysis complete. Review QC flags before interpreting or publishing results.';return}if(s.state==='failed')throw new Error(s.error||'PCR analysis failed');$('status').textContent='Analysis running… '+(s.state||'queued');await new Promise(r=>setTimeout(r,2000))}throw new Error('Analysis is taking longer than expected. Refresh later; the job remains in your workspace.')}
+function render(r){$('result').classList.remove('hidden');$('detected').textContent=r.pcr_type+' · '+r.instrument;$('meta').textContent='Confidence: '+r.confidence+' · '+(r.well_count??'—')+' wells · '+(r.target_count??'—')+' targets · Tables: '+r.tables.join(', ');
+const names=[['HTML report','report'],['Excel tables','tables'],['Calculation trace','calculations'],['Complete ZIP package','package']];$('downloads').innerHTML=names.map(([label,k])=>'<a href="'+esc(r.files[k].replace('{job_id}',window.currentJob))+'">'+label+' ↓</a>').join('');
+$('qc').innerHTML=(r.qc||[]).map(x=>'<div class="warn">'+esc(x)+'</div>').join('')||'<p class="muted">No QC flags raised by the engine.</p>';$('evidence').innerHTML=(r.evidence||[]).map(x=>'<li>'+esc(x)+'</li>').join('')}
+const oldRender=render;render=function(r){window.currentJob=window.lastJob;oldRender(r)};
+const oldPoll=poll;poll=async function(id){window.lastJob=id;return oldPoll(id)};
+</script></body></html>
