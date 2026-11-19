@@ -179,7 +179,11 @@ def pub_style():
         "savefig.bbox": "tight", "savefig.pad_inches": 0.05,
         "pdf.fonttype": 42, "ps.fonttype": 42, "svg.fonttype": "none"})
 pub_style()
-FIG_DPI = 600          # every exported raster figure is saved at this resolution
+# Keep raster exports within small-container memory limits. Vector PDF/SVG retain
+# publication-quality line art; set PCR_EXPORT_DPI=600 for high-resolution PNGs.
+FIG_DPI = max(120, min(600, int(os.environ.get("PCR_EXPORT_DPI", "300"))))
+EXPORT_TIFF = os.environ.get("PCR_EXPORT_TIFF", "0").lower() in ("1", "true", "yes")
+PREVIEW_DPI = 90
 
 def stars(p):
     return "" if p is None or p != p else ("***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns")
@@ -220,16 +224,28 @@ class Analysis:
         self.figdir = None
 
     def add_fig(self, key, title, legend, fig):
-        """Save figure as 600-dpi PNG + 600-dpi LZW TIFF + vector PDF + SVG, keep a small preview for the report."""
+        """Write compact raster + scalable vector figures without retaining large buffers."""
+        import gc
         key = re.sub(r"[^A-Za-z0-9_.-]+", "_", key); files = {}
-        if self.figdir:
-            os.makedirs(self.figdir, exist_ok=True)
-            for ext, kw in (("png", dict(dpi=FIG_DPI)), ("tiff", dict(dpi=FIG_DPI, pil_kwargs={"compression": "tiff_lzw"})),
-                            ("pdf", {}), ("svg", {})):
-                fp = os.path.join(self.figdir, f"{key}.{ext}"); fig.savefig(fp, format=ext, **kw); files[ext] = fp
-        b = io.BytesIO(); fig.savefig(b, format="png", dpi=170); plt.close(fig)
-        self.figs.append(dict(key=key, title=title, legend=legend, files=files,
-                              preview="data:image/png;base64," + base64.b64encode(b.getvalue()).decode()))
+        try:
+            if self.figdir:
+                os.makedirs(self.figdir, exist_ok=True)
+                formats = [("png", dict(dpi=FIG_DPI)), ("pdf", {}), ("svg", {})]
+                if EXPORT_TIFF:
+                    formats.insert(1, ("tiff", dict(dpi=FIG_DPI, pil_kwargs={"compression": "tiff_lzw"})))
+                for ext, kw in formats:
+                    fp = os.path.join(self.figdir, f"{key}.{ext}")
+                    fig.savefig(fp, format=ext, **kw)
+                    files[ext] = fp
+            # Reports use small previews; avoid a second high-resolution raster in RAM.
+            b = io.BytesIO()
+            fig.savefig(b, format="png", dpi=PREVIEW_DPI)
+            preview = "data:image/png;base64," + base64.b64encode(b.getvalue()).decode()
+            b.close()
+            self.figs.append(dict(key=key, title=title, legend=legend, files=files, preview=preview))
+        finally:
+            plt.close(fig)
+            gc.collect()
 
     def M(self, title, lines):
         self.math.append((title, lines))
@@ -687,7 +703,7 @@ def build_report(a, path, outdir):
     return out_html, xl
 
 def run_pipeline(file, plate=None, ref=None, control=None, dpcr_vol=0.00085, outdir=None):
-    """Detect -> analyse -> write report, tables, calculations and 600-dpi figures. Returns (detection, analysis, paths)."""
+    """Detect -> analyse -> write report, tables, calculations and compact raster/vector figures."""
     args = argparse.Namespace(file=file, plate=plate, ref=ref, control=control, dpcr_vol=dpcr_vol)
     det = detect(load_grid(file), file)
     if det["kind"] == "unknown":
@@ -707,7 +723,7 @@ def main():
     print(f"Detected : {det['pcr_type']}\nInstrument: {det['instrument']}\nConfidence: {det['confidence']}")
     for e in det["evidence"]: print("  -", e)
     if a is None: sys.exit("Cannot analyse this file.")
-    print(f"Output   : {paths['outdir']}  (report.html, tables.xlsx, calculations.txt, figures/ at {FIG_DPI} dpi)")
+    print(f"Output   : {paths['outdir']}  (report.html, tables.xlsx, calculations.txt, figures/ PNG at {FIG_DPI} dpi + PDF/SVG)")
     for q in a.qc: print("  QC:", q)
 
 if __name__ == "__main__":
