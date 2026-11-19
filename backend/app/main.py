@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, HTMLResponse
 
-from . import hybrid, pipeline
+from . import hybrid, pipeline  # PCR Nexus is imported lazily by its job worker.
 
 DATA_DIR = os.environ.get("LINKWRIGHT_DATA", "/tmp/linkwright-jobs")
 FRONTEND = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend"))
@@ -36,6 +36,7 @@ ALLOWED_FILES = {
     "results.json": "application/json",
     "docking_package.zip": "application/zip",
     "docking_results.json": "application/json",
+    "pcr_results.json": "application/json",
 }
 UUID_RE = re.compile(r"^[0-9a-f]{32}$")
 
@@ -169,6 +170,26 @@ def _execute_docking(job_id, receptor_path, ligand_paths, params):
                       stages={"docking": {"state": "done", "message": "Docking batch finished"}})
     except Exception as e:
         _write_status(job_id, state="failed", error=f"{type(e).__name__}: {e}"[:500], finished=time.time())
+
+
+def _execute_pcr(job_id, source_path, plate_path, params):
+    """Run PCR Nexus analysis asynchronously using the uploaded original engine."""
+    job_dir = os.path.join(DATA_DIR, job_id)
+    try:
+        from .pcr_nexus import analyse_pcr_file
+        result = analyse_pcr_file(
+            source_path, job_dir, plate_path=plate_path,
+            reference_gene=params.get("reference_gene") or None,
+            control_group=params.get("control_group") or None,
+            dpcr_partition_volume_ul=params["dpcr_partition_volume_ul"],
+        )
+        result["files"] = {k: v.replace("{job_id}", job_id) for k, v in result["files"].items()}
+        with open(os.path.join(job_dir, "pcr_results.json"), "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2)
+        _write_status(job_id, state="done", result=result, warnings=result.get("warnings", []), finished=time.time())
+    except Exception as e:  # noqa: BLE001
+        _write_status(job_id, state="failed", error=f"{type(e).__name__}: {e}"[:500], finished=time.time())
+
 
 def _read_status(job_id):
     path = _status_path(job_id)
@@ -768,6 +789,85 @@ async def create_docking_job(
             "package_url": f"/api/jobs/{job_id}/files/docking_package.zip"}
 
 
+
+@app.post("/api/pcr/jobs")
+async def create_pcr_job(
+    request: Request,
+    file: UploadFile = File(...),
+    plate: UploadFile | None = File(None),
+    reference_gene: str = Form(""),
+    control_group: str = Form(""),
+    dpcr_partition_volume_ul: float = Form(0.00085),
+):
+    """Queue an authenticated PCR Nexus analysis; files/results are scoped to their owner."""
+    _enforce_rate_limit(request)
+    allowed = {".csv", ".tsv", ".txt", ".xlsx", ".xlsm"}
+    filename = os.path.basename(file.filename or "")
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in allowed:
+        raise HTTPException(400, "Upload CSV, TSV, TXT, XLSX or XLSM instrument exports.")
+    if not (0.000001 <= dpcr_partition_volume_ul <= 1):
+        raise HTTPException(400, "Digital PCR partition volume must be between 0.000001 and 1 µL.")
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if not raw or len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(413, f"PCR upload is empty or exceeds {MAX_UPLOAD_BYTES} bytes.")
+    plate_path = None
+    job_id = uuid.uuid4().hex
+    job_dir = os.path.join(DATA_DIR, job_id)
+    os.makedirs(job_dir)
+    safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", filename)[:100] or f"pcr_input{suffix}"
+    source_path = os.path.join(job_dir, safe_name)
+    with open(source_path, "wb") as f:
+        f.write(raw)
+    if plate is not None and plate.filename:
+        if os.path.splitext(plate.filename)[1].lower() not in {".csv", ".tsv", ".txt"}:
+            raise HTTPException(400, "Plate map must be a CSV, TSV or TXT file.")
+        plate_raw = await plate.read(2 * 1024 * 1024 + 1)
+        if not plate_raw or len(plate_raw) > 2 * 1024 * 1024:
+            raise HTTPException(413, "Plate map is empty or exceeds 2 MB.")
+        plate_path = os.path.join(job_dir, "plate_map.csv")
+        with open(plate_path, "wb") as f:
+            f.write(plate_raw)
+    params = {
+        "reference_gene": reference_gene.strip()[:100],
+        "control_group": control_group.strip()[:100],
+        "dpcr_partition_volume_ul": dpcr_partition_volume_ul,
+    }
+    _write_status(job_id, state="queued", created=time.time(), owner_id=request.state.user["id"],
+                  job_type="pcr_nexus", stages={"analysis": {"state": "queued", "message": "PCR analysis queued"}})
+    pool.submit(_execute_pcr, job_id, source_path, plate_path, params)
+    return {"job_id": job_id, "status_url": f"/api/pcr/jobs/{job_id}"}
+
+
+@app.get("/api/pcr/jobs/{job_id}")
+def pcr_job_status(job_id: str, request: Request):
+    if not UUID_RE.match(job_id):
+        raise HTTPException(404, "Job not found")
+    st = _read_status(job_id)
+    if st.get("owner_id") != request.state.user["id"] or st.get("job_type") != "pcr_nexus":
+        raise HTTPException(404, "Job not found")
+    return JSONResponse(st)
+
+
+@app.get("/api/pcr/jobs/{job_id}/files/{name}")
+def pcr_job_file(job_id: str, name: str, request: Request):
+    allowed = {
+        "pcr_report.html": "text/html",
+        "pcr_tables.xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pcr_calculations.txt": "text/plain",
+        "pcr_package.zip": "application/zip",
+    }
+    if not UUID_RE.match(job_id) or name not in allowed:
+        raise HTTPException(404, "File not found")
+    st = _read_status(job_id)
+    if st.get("owner_id") != request.state.user["id"] or st.get("job_type") != "pcr_nexus":
+        raise HTTPException(404, "File not found")
+    path = os.path.join(DATA_DIR, job_id, name)
+    if not os.path.isfile(path):
+        raise HTTPException(404, "File not ready")
+    return FileResponse(path, media_type=allowed[name], filename=f"linkwright_pcr_{job_id[:8]}_{name}")
+
+
 @app.get("/api/jobs/{job_id}")
 def job_status(job_id: str, request: Request):
     if not UUID_RE.match(job_id):
@@ -820,6 +920,12 @@ def structure_tools_page(request: Request):
 def hybrid_workspace(request: Request):
     denied = _require_page_user(request)
     return denied or FileResponse(os.path.join(FRONTEND, "index.html"))
+
+
+@app.get("/pcr-nexus")
+def pcr_nexus_page(request: Request):
+    denied = _require_page_user(request)
+    return denied or FileResponse(os.path.join(FRONTEND, "pcr-nexus.html"))
 
 @app.get("/signup")
 def signup_page():
