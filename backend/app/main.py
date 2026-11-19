@@ -57,7 +57,13 @@ async def account_and_ownership_guard(request: Request, call_next):
         from urllib.parse import urlsplit
         if urlsplit(origin).netloc.lower() != request.headers.get("host", "").lower():
             return JSONResponse({"detail": "Cross-origin request rejected."}, status_code=403)
-    if path.startswith("/api/") and path not in public_paths:
+    # PCR Nexus is intentionally public on this isolated staging branch.
+    # Give anonymous PCR jobs an IP-scoped owner identity; production's main branch is unchanged.
+    is_public_pcr = path == "/pcr-nexus" or path.startswith("/api/pcr/jobs")
+    if path.startswith("/api/") and is_public_pcr:
+        ip = request.client.host if request.client else "unknown"
+        request.state.user = {"id": f"public-pcr:{ip}", "approved": True, "plan": "pilot", "role": "researcher"}
+    elif path.startswith("/api/") and path not in public_paths:
         user = auth.get_session(request.cookies.get(SESSION_COOKIE))
         if not user:
             return JSONResponse({"detail": "Please sign in to use Linkwright."}, status_code=401)
@@ -923,9 +929,9 @@ def hybrid_workspace(request: Request):
 
 
 @app.get("/pcr-nexus")
-def pcr_nexus_page(request: Request):
-    denied = _require_page_user(request)
-    return denied or FileResponse(os.path.join(FRONTEND, "pcr-nexus.html"))
+def pcr_nexus_page():
+    """Public PCR Nexus entry point on the isolated staging branch."""
+    return FileResponse(os.path.join(FRONTEND, "pcr-nexus.html"))
 
 @app.get("/signup")
 def signup_page():
@@ -934,4 +940,5 @@ def signup_page():
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(FRONTEND, "dashboard.html"))
+    """Open PCR Nexus directly on the isolated staging branch."""
+    return FileResponse(os.path.join(FRONTEND, "pcr-nexus.html"))
