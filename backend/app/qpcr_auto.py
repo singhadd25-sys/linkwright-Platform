@@ -77,7 +77,15 @@ def find_header(rows, need=2):
     return best_i if best >= need else None
 
 def table_from(rows, hdr):
-    cols = [str(c).strip() for c in rows[hdr]]
+    # Instrument exports sometimes repeat column labels (e.g. duplicate "Task"
+    # columns). Pandas then returns a DataFrame for df["Task"], not a Series,
+    # which breaks .str operations downstream. Make every label deterministic.
+    raw_cols = [str(c).strip() or f"Unnamed_{i + 1}" for i, c in enumerate(rows[hdr])]
+    counts = {}
+    cols = []
+    for name in raw_cols:
+        counts[name] = counts.get(name, 0) + 1
+        cols.append(name if counts[name] == 1 else f"{name}__duplicate_{counts[name]}")
     body = []
     for r in rows[hdr + 1:]:
         if not any(str(c).strip() for c in r):
@@ -85,6 +93,15 @@ def table_from(rows, hdr):
             continue
         body.append((list(r) + [""] * len(cols))[:len(cols)])
     return pd.DataFrame(body, columns=cols)
+
+def column_series(df, name, default=""):
+    """Always return a Series, even for absent or duplicated instrument columns."""
+    if name is None:
+        return pd.Series(default, index=df.index)
+    value = df[name]
+    if isinstance(value, pd.DataFrame):
+        value = value.iloc[:, 0]
+    return value
 
 def pick(df, key):
     for c in df.columns:
@@ -253,12 +270,12 @@ class Analysis:
     # ---- Ct table -> tidy
     def tidy_from_ct(self, df, cols):
         t = pd.DataFrame()
-        t["Well"] = df[cols["well"]] if cols["well"] else ""
-        t["Sample"] = df[cols["sample"]] if cols["sample"] else t["Well"]
-        t["Target"] = df[cols["target"]] if cols["target"] else (df[cols["dye"]] if cols["dye"] else "Target1")
-        t["Ct"] = num(df[cols["ct"]]).where(lambda s: s > 0)
-        t["Task"] = df[cols["task"]].astype(str) if cols["task"] else ""
-        t["Qty"] = num(df[cols["qty"]]) if cols["qty"] else np.nan
+        t["Well"] = column_series(df, cols["well"], "")
+        t["Sample"] = column_series(df, cols["sample"], t["Well"])
+        t["Target"] = column_series(df, cols["target"], column_series(df, cols["dye"], "Target1"))
+        t["Ct"] = num(column_series(df, cols["ct"], np.nan)).where(lambda s: s > 0)
+        t["Task"] = column_series(df, cols["task"], "").astype(str)
+        t["Qty"] = num(column_series(df, cols["qty"], np.nan))
         t = t[(t["Sample"].astype(str).str.strip() != "") | (t["Well"].astype(str).str.strip() != "")].copy()
         tk = t["Task"].str.lower() + " " + t["Sample"].astype(str).str.lower()
         t["Role"] = np.where(tk.str.contains(r"ntc|no.?template|neg(?:ative)? ctrl|negative control|water"), "NTC",
