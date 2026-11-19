@@ -181,9 +181,9 @@ def pub_style():
 pub_style()
 # Keep raster exports within small-container memory limits. Vector PDF/SVG retain
 # publication-quality line art; set PCR_EXPORT_DPI=600 for high-resolution PNGs.
-FIG_DPI = max(120, min(600, int(os.environ.get("PCR_EXPORT_DPI", "300"))))
+FIG_DPI = max(120, min(600, int(os.environ.get("PCR_EXPORT_DPI", "150"))))
 EXPORT_TIFF = os.environ.get("PCR_EXPORT_TIFF", "0").lower() in ("1", "true", "yes")
-PREVIEW_DPI = 90
+PREVIEW_DPI = max(45, min(120, int(os.environ.get("PCR_PREVIEW_DPI", "60"))))
 
 def stars(p):
     return "" if p is None or p != p else ("***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns")
