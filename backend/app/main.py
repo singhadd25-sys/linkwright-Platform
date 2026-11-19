@@ -60,9 +60,16 @@ async def account_and_ownership_guard(request: Request, call_next):
     # PCR Nexus is intentionally public on this isolated staging branch.
     # Give anonymous PCR jobs an IP-scoped owner identity; production's main branch is unchanged.
     is_public_pcr = path == "/pcr-nexus" or path.startswith("/api/pcr/jobs")
+    guest_cookie = "pcr_nexus_guest"
+    guest_id = request.cookies.get(guest_cookie)
+    set_guest_cookie = False
     if path.startswith("/api/") and is_public_pcr:
-        ip = request.client.host if request.client else "unknown"
-        request.state.user = {"id": f"public-pcr:{ip}", "approved": True, "plan": "pilot", "role": "researcher"}
+        # Render proxy IPs can vary between consecutive requests. Bind anonymous
+        # jobs to a random browser cookie instead of request.client.host.
+        if not guest_id or not re.fullmatch(r"[0-9a-f]{32}", guest_id):
+            guest_id = uuid.uuid4().hex
+            set_guest_cookie = True
+        request.state.user = {"id": f"public-pcr:{guest_id}", "approved": True, "plan": "pilot", "role": "researcher"}
     elif path.startswith("/api/") and path not in public_paths:
         user = auth.get_session(request.cookies.get(SESSION_COOKIE))
         if not user:
@@ -73,6 +80,9 @@ async def account_and_ownership_guard(request: Request, call_next):
             return JSONResponse({"detail": "Your 7-day trial has expired. Contact Linkwright to extend access."}, status_code=403)
         request.state.user = user
     response = await call_next(request)
+    if set_guest_cookie:
+        response.set_cookie(guest_cookie, guest_id, httponly=True, secure=True,
+                            samesite="lax", max_age=86400, path="/")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "same-origin")
     response.headers.setdefault("X-Frame-Options", "DENY")
