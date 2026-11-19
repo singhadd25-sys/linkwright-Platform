@@ -202,6 +202,18 @@ FIG_DPI = max(120, min(600, int(os.environ.get("PCR_EXPORT_DPI", "150"))))
 EXPORT_TIFF = os.environ.get("PCR_EXPORT_TIFF", "0").lower() in ("1", "true", "yes")
 PREVIEW_DPI = max(45, min(120, int(os.environ.get("PCR_PREVIEW_DPI", "60"))))
 
+def safe_int(value, default=0):
+    """Convert numeric metadata to int without crashing on NaN/None/inf."""
+    try:
+        if pd.isna(value):
+            return default
+        value = float(value)
+        if not np.isfinite(value):
+            return default
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+
 def stars(p):
     return "" if p is None or p != p else ("***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns")
 
@@ -221,7 +233,7 @@ def ct_from_curve(cyc, y):
     base = y[b0:b1]; mu, sd = base.mean(), base.std(ddof=1)
     yb = y - mu
     thr = max(10 * sd, 0.10 * yb.max())
-    steps = dict(baseline_cycles=(int(cyc[b0]), int(cyc[b1 - 1])), baseline_mean=mu, baseline_sd=sd, threshold=thr,
+    steps = dict(baseline_cycles=(safe_int(cyc[b0]), safe_int(cyc[b1 - 1])), baseline_mean=mu, baseline_sd=sd, threshold=thr,
                  plateau=yb.max())
     if yb.max() < 5 * sd or yb.max() < thr:
         return None, steps
@@ -376,7 +388,7 @@ class Analysis:
     # ---- qPCR core
     def analyse_ct(self, t):
         self.tables["Raw_Ct"] = t[["Well", "Sample", "Target", "Role", "Qty", "Ct"]]
-        n_wells = len(t); n_und = int(t["Ct"].isna().sum())
+        n_wells = len(t); n_und = safe_int(t["Ct"].isna().sum())
         self.meta.update(n_wells=n_wells, n_undetermined=n_und,
                          targets=sorted(t["Target"].astype(str).unique()), samples=sorted(t["Sample"].astype(str).unique()))
         # NTC check
@@ -585,7 +597,7 @@ class Analysis:
                      "Peak maxima give the melting temperature (Tm) of each amplicon.", fig)
         R = pd.DataFrame(rows); self.tables["Melt_Tm"] = R
         for _, r in R[R["Peaks"] > 1].iterrows():
-            self.qc.append(f"Well {r['Well']} has {int(r['Peaks'])} melt peaks (possible non-specific product / primer-dimer).")
+            self.qc.append(f"Well {r['Well']} has {safe_int(r['Peaks'])} melt peaks (possible non-specific product / primer-dimer).")
         self.M("Melting temperature (Tm)", [
             "Fluorescence is smoothed (Savitzky-Golay, 3rd order) and the negative derivative -dF/dT is computed numerically.",
             "Tm = temperature at each peak maximum of -dF/dT (peaks must exceed 10 % of the tallest peak).",
@@ -623,13 +635,13 @@ class Analysis:
                      "Absolute target concentration per reaction from Poisson-corrected positive-partition fractions. Error bars: 95 % Wilson confidence interval.", fig)
         r = out.iloc[0]
         self.M("Absolute quantification by Poisson statistics (example: first well)", [
-            f"Positive fraction p = positives / total = {int(r['Positives'])} / {int(r['Total'])} = {f(r['Positives'] / r['Total'], 5)}",
-            f"Mean copies per partition \u03bb = -ln(1 - p) = -ln({int(r['Negatives'])}/{int(r['Total'])}) = {f(r['lambda'], 5)}",
+            f"Positive fraction p = positives / total = {safe_int(r['Positives'])} / {safe_int(r['Total'])} = {f(r['Positives'] / r['Total'], 5)}",
+            f"Mean copies per partition \u03bb = -ln(1 - p) = -ln({safe_int(r['Negatives'])}/{safe_int(r['Total'])}) = {f(r['lambda'], 5)}",
             f"Concentration = \u03bb / partition volume = {f(r['lambda'], 5)} / {vol} \u00b5L = {r['copies_per_uL']:.4g} copies/\u00b5L",
             "95 % CI: Wilson interval on p, transformed through the same Poisson equation.",
             f"Partition volume assumed {vol} \u00b5L (0.85 nL, Bio-Rad droplet). Change with --dpcr-vol."])
         for _, r in out[out["Total"] < 10000].iterrows():
-            self.qc.append(f"Well {r['Well']}: only {int(r['Total'])} accepted partitions (<10,000 recommended).")
+            self.qc.append(f"Well {r['Well']}: only {safe_int(r['Total'])} accepted partitions (<10,000 recommended).")
         self.meta["n_wells"] = len(out)
 
 # ------------------------------------------------------------------ report
@@ -667,7 +679,7 @@ def draft_text(a):
             p = "" if r["p_Welch"] != r["p_Welch"] else f", p = {r['p_Welch']:.3g}"
             direc = "up-regulated" if r["Fold_2_ddCt"] > 1 else "down-regulated"
             out.append(f"{html.escape(str(r['Target']))} was {direc} {r['Fold_2_ddCt']:.2f}-fold in {html.escape(str(r['Group']))} relative to "
-                       f"{html.escape(m['ctrl'])} (n = {int(r['n'])}{p}). ")
+                       f"{html.escape(m['ctrl'])} (n = {safe_int(r['n'])}{p}). ")
     elif "Absolute_Quantity" in T:
         out.append("Absolute quantities were interpolated from the standard curve (table below). ")
     elif "dPCR_Concentration" in T:
